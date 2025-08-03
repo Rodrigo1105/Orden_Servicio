@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Orden de Servicio</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+      padding: 20px;
+    }
+    .hoja {
+      width: 800px;
+      margin: auto;
+      background: white;
+      padding: 20px;
+      box-shadow: 0 0 5px gray;
+    }
+    canvas {
+      border: 1px solid #000;
+      background: #fff;
+      touch-action: none;
+    }
+    button {
+      margin-top: 20px;
+      padding: 10px 15px;
+      background: #007BFF;
+      color: white;
+      border: none;
+      border-radius: 5px;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+<div class="hoja">
+  <h1>Orden de Servicio</h1>
+  <p>Orden No.: <span id="correlativo">Cargando...</span></p>
+  <p>Fecha: <input type="text" id="fecha" readonly></p>
+  <p>Nombre: <input type="text" id="nombre"></p>
+  <p>Servicio:
+    <select id="servicio">
+      <option>SOPORTE SOFTWARE</option>
+      <option>SOPORTE HARDWARE</option>
+    </select>
+  </p>
+  <p>Técnico:
+    <select id="tecnico">
+      <option>Hector Urbina</option>
+      <option>Rodrigo Morales</option>
+    </select>
+  </p>
+  <p>Firma Técnico:<br><canvas id="firmaTecnico" width="300" height="150"></canvas></p>
+  <p>Firma Usuario:<br><canvas id="firmaUsuario" width="300" height="150"></canvas></p>
+  <p>Usuario: <input type="text" id="usuario"></p>
+  <button onclick="guardarOrden()">Guardar Orden</button>
+</div>
+
+<script>
+const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxSo72rOBHndZMAoWZU_A22c1T0NLdMYqXgdlY13ewUpj2c4Hx3h1Mw_n0heHaWNKH0TA/exec';
+
+function setupFirma(id) {
+  const canvas = document.getElementById(id);
+  const ctx = canvas.getContext('2d');
+  let dibujando = false;
+
+  canvas.addEventListener('mousedown', e => {
+    dibujando = true;
+    ctx.beginPath();
+    ctx.moveTo(e.offsetX, e.offsetY);
+  });
+  canvas.addEventListener('mouseup', () => dibujando = false);
+  canvas.addEventListener('mousemove', e => {
+    if (!dibujando) return;
+    ctx.lineTo(e.offsetX, e.offsetY);
+    ctx.stroke();
+  });
+  canvas.addEventListener('touchstart', e => {
+    dibujando = true;
+    const rect = canvas.getBoundingClientRect();
+    ctx.beginPath();
+    ctx.moveTo(e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top);
+  });
+  canvas.addEventListener('touchend', () => dibujando = false);
+  canvas.addEventListener('touchmove', e => {
+    if (!dibujando) return;
+    const rect = canvas.getBoundingClientRect();
+    ctx.lineTo(e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top);
+    ctx.stroke();
+  });
+}
+
+function cargarCorrelativo() {
+  fetch(WEB_APP_URL)
+    .then(res => res.json())
+    .then(data => {
+      document.getElementById('correlativo').innerText = data.correlativo || 'ERROR';
+    })
+    .catch(err => {
+      console.error("Error cargando correlativo:", err);
+      document.getElementById('correlativo').innerText = 'ERROR';
+    });
+}
+
+function guardarOrden() {
+  const correlativo = document.getElementById('correlativo').innerText;
+  const fecha = document.getElementById('fecha').value;
+  const firmaUsuario = document.getElementById('firmaUsuario').toDataURL();
+  const firmaTecnico = document.getElementById('firmaTecnico').toDataURL();
+  const nombre = document.getElementById('nombre').value;
+  const servicio = document.getElementById('servicio').value;
+  const tecnico = document.getElementById('tecnico').value;
+  const usuario = document.getElementById('usuario').value;
+
+  html2canvas(document.querySelector('.hoja')).then(canvas => {
+    const imgData = canvas.toDataURL('image/png');
+    const pdf = new jspdf.jsPDF('p', 'mm', 'letter');
+    const pdfWidth = 215.9;
+    const pdfHeight = canvas.height * pdfWidth / canvas.width;
+    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+
+    const blob = pdf.output('blob');
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const pdfBase64 = reader.result;
+      fetch(WEB_APP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fecha, nombre, servicio, tecnico, usuario,
+          firmaCliente: firmaUsuario,
+          firmaTecnico: firmaTecnico,
+          pdfBase64
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        alert("Orden guardada. Nuevo correlativo: " + data.correlativo);
+        document.getElementById('correlativo').innerText = data.correlativo;
+      })
+      .catch(err => console.error("Error al guardar:", err));
+    };
+    reader.readAsDataURL(blob);
+    pdf.save(`Orden_${correlativo}.pdf`);
+  });
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const hoy = new Date();
+  const fechaStr = hoy.toLocaleDateString('es-ES');
+  document.getElementById('fecha').value = fechaStr;
+  setupFirma('firmaTecnico');
+  setupFirma('firmaUsuario');
+  cargarCorrelativo();
+});
+</script>
+</body>
+</html>
